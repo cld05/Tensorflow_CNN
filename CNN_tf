@@ -5,6 +5,7 @@ from sklearn.metrics import confusion_matrix
 import time
 from datetime import timedelta
 import math
+import os
 
 # Definition of the properties of the CNN layers
 # Layer 1
@@ -24,6 +25,36 @@ stride = 1
 # Data download from MNIST dataset
 from tensorflow.examples.tutorials.mnist import input_data
 data = input_data.read_data_sets('data/MNIST/', one_hot=True)
+
+
+def plot_images(images, cls_true, cls_pred=None):
+    assert len(images) == len(cls_true) == 9
+
+    # Create figure with 3x3 sub-plots.
+    fig, axes = plt.subplots(3, 3)
+    fig.subplots_adjust(hspace=0.3, wspace=0.3)
+
+    for i, ax in enumerate(axes.flat):
+        # Plot image.
+        ax.imshow(images[i].reshape(img_shape), cmap='binary')
+
+        # Show true and predicted classes.
+        if cls_pred is None:
+            xlabel = "True: {0}".format(cls_true[i])
+        else:
+            xlabel = "True: {0}, Pred: {1}".format(cls_true[i], cls_pred[i])
+
+        # Show the classes as the label on the x-axis.
+        ax.set_xlabel(xlabel)
+
+        # Remove ticks from the plot.
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+    # Ensure the plot is shown correctly with multiple plots
+    # in a single Notebook cell.
+    plt.show()
+
 
 # The dataset above gives one hot encoded labels
 # Here we create labels associated to class name
@@ -91,7 +122,7 @@ def new_conv_layer(input, num_input_channels, filter_size, num_filters, use_pool
 
 def flatten_layer(layer):
     layer_shape = layer.get_shape()
-    num_features = np.array(layer_shape, dtype=int).prod()
+    num_features = layer_shape[1:4].num_elements()
     layer_flat = tf.reshape(layer, [-1, num_features])
 
     return layer_flat, num_features
@@ -122,24 +153,24 @@ y_true = tf.placeholder(tf.float32, shape=[None, 10], name='y_true')
 y_true_cls = tf.argmax(y_true, dimension=1)
 
 # We can now create the convolutional layers
-conv1 = new_conv_layer(input=x_img,
-                       num_input_channels=num_channels,
-                       filter_size=filter_size1,
-                       num_filters=num_filters1,
-                       use_pooling=True)
+conv1, weights_conv1 = new_conv_layer(input=x_img,
+                                      num_input_channels=num_channels,
+                                      filter_size=filter_size1,
+                                      num_filters=num_filters1,
+                                      use_pooling=True)
 print(conv1)
 
-conv2 = new_conv_layer(input=conv1,
-                       num_input_channels=num_channels,
-                       filter_size=filter_size2,
-                       num_filters=num_filters2,
-                       use_pooling=True)
+conv2, weights_conv2 = new_conv_layer(input=conv1,
+                                      num_input_channels=num_filters1,
+                                      filter_size=filter_size2,
+                                      num_filters=num_filters2,
+                                      use_pooling=True)
 print(conv2)
 
 # The convolutional layer above need to be connected to the fulluy connected
 # layer but the output of layer 2 must be reshaped
 layer_flat, num_features = flatten_layer(conv2)
-print(layer_flat, num_filters)
+print(layer_flat, num_features)
 
 # Create the first fully connected layer
 fc1 = new_fc_layer(input=layer_flat,
@@ -177,7 +208,7 @@ session = tf.Session()
 session.run(tf.initialize_all_variables())
 
 # Definition of the train batch
-train_batch = 64  # number of images to be fed at each iteratioin in the optimizer
+train_batch_size = 64  # number of images to be fed at each iteratioin in the optimizer
 
 total_iterations = 0
 
@@ -355,5 +386,5 @@ def print_test_accuracy(show_example_errors=False,
         plot_confusion_matrix(cls_pred=cls_pred)
 
 
-optimize(num_iterations=100)
+optimize(num_iterations=1000)
 print_test_accuracy(show_example_errors=True)
