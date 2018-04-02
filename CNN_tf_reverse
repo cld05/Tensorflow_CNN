@@ -2,7 +2,6 @@ import matplotlib.pyplot as plt
 from PIL import Image
 import tensorflow as tf
 import numpy as np
-from sklearn.metrics import confusion_matrix
 import time
 from datetime import timedelta
 import math
@@ -40,40 +39,10 @@ for k in img_index_test_rndm:
     data.test.images[k] = 1 - data.test.images[k]
 
 
-# print(data.train.images[img_index_rndm[1]])
-
-def plot_images(images, cls_true, cls_pred=None):
-    assert len(images) == len(cls_true) == 9
-
-    # Create figure with 3x3 sub-plots.
-    fig, axes = plt.subplots(3, 3)
-    fig.subplots_adjust(hspace=0.3, wspace=0.3)
-
-    for i, ax in enumerate(axes.flat):
-        # Plot image.
-        ax.imshow(images[i].reshape(img_shape), cmap='binary')
-
-        # Show true and predicted classes.
-        if cls_pred is None:
-            xlabel = "True: {0}".format(cls_true[i])
-        else:
-            xlabel = "True: {0}, Pred: {1}".format(cls_true[i], cls_pred[i])
-
-        # Show the classes as the label on the x-axis.
-        ax.set_xlabel(xlabel)
-
-        # Remove ticks from the plot.
-        ax.set_xticks([])
-        ax.set_yticks([])
-
-    # Ensure the plot is shown correctly with multiple plots
-    # in a single Notebook cell.
-    plt.show()
-
-
 # The dataset above gives one hot encoded labels
 # Here we create labels associated to class name
 data.test.cls = np.argmax(data.test.labels, axis=1)
+data.validation.cls = np.argmax(data.validation.labels, axis=1)
 
 # Definition of the size of our data
 img_size = 28  # images are 28x28 pixles (1 channel since balck and white)
@@ -83,23 +52,21 @@ img_shape = (img_size, img_size)
 num_channels = 1  # black and white images have only 1 channel
 num_cls = 10  # we will calssify handwritten digits from 0 to 9
 
-# GRAPH
-# --------------------------------------------------------------
-# Definition of funcitons to create random weights and biases
 
+# Helper functions
 
-def new_weights(shape):
+def new_weights(shape):  # used to retrieve the weights of the different layers
     return tf.Variable(tf.truncated_normal(shape, stddev=0.05))
 
 
-def new_biases(length):
+def new_biases(length):  # used to retrieve the biases of the different layers
     return tf.Variable(tf.constant(0.05, shape=[length]))
 
 # This funciton is used to create new convolutional layer
 # Each convolutional layer must take into account the output of the previous one
 
 
-def leaky_relu(x, alpha):
+def leaky_relu(x, alpha):       # We will use a leaky_relu activatin function
     return tf.nn.relu(x) - alpha * tf.nn.relu(-x)
 
 
@@ -135,6 +102,7 @@ def new_conv_layer(input, num_input_channels, filter_size, num_filters, use_pool
 
     return layer, weights
 
+
 # The output of the convolutional layers is 4-dimensional
 # we need to reduce it to a 2-dimensional one
 
@@ -162,6 +130,160 @@ def new_fc_layer(input,
     return layer
 
 
+def optimize(num_iterations):
+
+    global total_iterations  # update global variable
+    global best_validation_accuracy
+    global last_improvement
+
+    start_time = time.time()  # initial time, stored for priting purposes
+
+    for i in range(num_iterations):
+
+        # Update total number of iterations
+        total_iterations += 1
+
+        # Get a batch of the training data and corresponsing labels
+        x_batch, y_true_batch = data.train.next_batch(train_batch_size)
+
+        # Create a feed dictionary
+        feed_dict_train = {x: x_batch,
+                           y_true: y_true_batch}
+
+        # run the optimizier in the sessionself
+        # tensorflow uses the dictionarycreated above in order to feed
+        # the data into place data into the placeholders
+        session.run(optimizer, feed_dict=feed_dict_train)
+
+        # Print status messages
+        if total_iterations % 100 == 0:
+            # calculate accuracy on training batch
+            acc_train = session.run(accuracy, feed_dict=feed_dict_train)
+
+            acc_validation, _ = validation_accuracy()
+
+            if acc_validation > best_validation_accuracy:
+                best_validation_accuracy = acc_validation
+
+                last_improvement = total_iterations
+
+                saver.save(sess=session, save_path=save_path)
+
+                improved_string = '*'
+
+            else:
+                improved_string = ' '
+
+            msg = "Optimization Iteration: {0:>6}, Train batch accuracy {1:>6.1%}, Validation Acc:{2:>6.1%}{3}"
+
+            print(msg.format(i + 1, acc_train, acc_validation, improved_string))
+
+        if total_iterations - last_improvement > required_improvement:
+            print("No improvement found, stopping optimization")
+            break
+
+    # End time
+    end_time = time.time()
+
+    # Total time
+    time_diff = end_time - start_time
+
+    print("Time usage:" + str(timedelta(seconds=int(round(time_diff)))))
+
+
+def predict_cls(images, labels, cls_true):
+    batch_size = 256
+    num_images = len(images)
+
+    cls_pred = np.zeros(shape=num_images, dtype=np.int)
+
+    i = 0
+    while i < num_images:
+        # The ending index for the next batch is denoted j.
+        j = min(i + batch_size, num_images)
+
+        # Create a feed-dict with the images and labels
+        # between index i and j.
+        feed_dict = {x: images[i:j, :],
+                     y_true: labels[i:j, :]}
+
+        # Calculate the predicted class using TensorFlow.
+        cls_pred[i:j] = session.run(y_pred_cls, feed_dict=feed_dict)
+
+        # Set the start-index for the next batch to the
+        # end-index of the current batch.
+        i = j
+
+    correct = (cls_true == cls_pred)
+
+    return correct, cls_pred
+
+
+def cls_accuracy(correct):
+    print(correct)
+    correct_sum = correct.sum()
+
+    acc = float(correct_sum) / len(correct)
+
+    return acc, correct_sum
+
+
+def predict_cls_validation():
+    return predict_cls(images=data.validation.images,
+                       labels=data.validation.labels,
+                       cls_true=data.validation.cls)
+
+
+def predict_cls_test():
+    return predict_cls(images=data.test.images,
+                       labels=data.test.labels,
+                       cls_true=data.test.cls)
+
+
+def validation_accuracy():
+    correct, _ = predict_cls_validation()
+    return cls_accuracy(correct)
+
+
+def plot_image(image, save=False, name='test.png'):
+    fig = plt.figure()
+    plt.imshow(image.reshape(28, 28),
+               interpolation='nearest',
+               cmap='binary')
+
+    plt.show()
+    if save:
+        path = os.path.join(
+            '/Users/claudiopaliotta/Documents/MachineLearning/Tensorflow_CNN/', name)
+        fig.savefig(path)
+
+
+def plot_image_pred(image, label, save=False, name='test_lbl.png'):
+    fig = plt.figure()
+    plt.imshow(image.reshape(28, 28),
+               interpolation='nearest',
+               cmap='binary')
+    plt.title(label)
+    plt.show()
+    if save:
+        path = os.path.join(
+            '/Users/claudiopaliotta/Documents/MachineLearning/Tensorflow_CNN/', name)
+        fig.savefig(path)
+
+
+def print_test_accuracy():
+
+    correct, cls_pred = predict_cls_test()
+    acc, num_correct = cls_accuracy(correct=correct)
+    msg = "Accuracy on Test-set:{0:.1%} ({1}/{2})"
+    num_images = len(correct)
+    print(msg.format(acc, num_correct, num_images))
+
+
+#
+# -------------------------------------------------------#
+#
+# Definition of the variables and the model
 # Create place holder variables
 # variable for the fully connected layer
 x = tf.placeholder(tf.float32, shape=[None, img_flat_size], name='x')
@@ -198,19 +320,6 @@ fc1 = new_fc_layer(input=layer_flat,
                    use_relu=True)
 print(fc1)
 
-#fc_size_cld = 32
-#fc_size_cld2 = 16
-# fc1_cld = new_fc_layer(input=fc1,
-#                       num_inputs=fc_size,
-#                       num_outputs=fc_size_cld,
-#                       use_relu=True)
-# print(fc1)
-
-# fc2_cld = new_fc_layer(input=fc1_cld,
-#                       num_inputs=fc_size_cld,
-#                       num_outputs=fc_size_cld2,
-#                       use_relu=True)
-
 # Create the second fully connected layer
 # The output of this one gives the 10 classes yet to be "normalized" (softmax)
 fc2 = new_fc_layer(input=fc1,
@@ -234,260 +343,37 @@ optimizer = tf.train.AdamOptimizer(learning_rate=0.0001).minimize(cost)
 # Calculate the accuracy of the algorithm
 correct_prediction = tf.equal(y_pred_cls, y_true_cls)
 accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+
+saver = tf.train.Saver()
+save_dir = '/Users/claudiopaliotta/Documents/MachineLearning/Tensorflow_CNN/checkpoints/'
+if not os.path.exists(save_dir):
+    os.makedirs(save_dir)
+
+save_path = os.path.join(save_dir, 'best_validation')
+
+
 # --------------------------------------------------------------
 # SESSION
 session = tf.Session()
 session.run(tf.global_variables_initializer())
 
 # Definition of the train batch
-train_batch_size = 32  # number of images to be fed at each iteratioin in the optimizer
+train_batch_size = 64  # number of images to be fed at each iteratioin in the optimizer
+
+best_validation_accuracy = 0.0
+last_improvement = 0
+required_improvement = 1000
 
 total_iterations = 0
 
 # Helper function to perform the optimiziation iterations
-
-
-def optimize(num_iterations):
-
-    global total_iterations  # update global variable
-
-    start_time = time.time()  # initial time, stored for priting purposes
-
-    for i in range(total_iterations, total_iterations + num_iterations):
-        # Get a batch of the training data and corresponsing labels
-        x_batch, y_true_batch = data.train.next_batch(train_batch_size)
-
-        # Create a feed dictionary
-        feed_dict_train = {x: x_batch,
-                           y_true: y_true_batch}
-
-        # run the optimizier in the sessionself
-        # tensorflow uses the dictionarycreated above in order to feed
-        # the data into place data into the placeholders
-        session.run(optimizer, feed_dict=feed_dict_train)
-
-        # Print status messages
-        if i % 100 == 0:
-            # print accuracy
-            acc = session.run(accuracy, feed_dict=feed_dict_train)
-
-            msg = "Optimization Iteration: {0:>6}, training Accuracy {1:>6.1%}"
-
-            print(msg.format(i + 1, acc))
-
-    # Update total number of iterations
-    total_iterations += num_iterations
-
-    # End time
-    end_time = time.time()
-
-    # Total time
-    time_diff = end_time - start_time
-
-    print("Time usage:" + str(timedelta(seconds=int(round(time_diff)))))
-
-
-def plot_example_errors(cls_pred, correct):
-    # This function is called from print_test_accuracy() below.
-
-    # cls_pred is an array of the predicted class-number for
-    # all images in the test-set.
-
-    # correct is a boolean array whether the predicted class
-    # is equal to the true class for each image in the test-set.
-
-    # Negate the boolean array.
-    incorrect = (correct == False)
-
-    # Get the images from the test-set that have been
-    # incorrectly classified.
-    images = data.test.images[incorrect]
-
-    # Get the predicted classes for those images.
-    cls_pred = cls_pred[incorrect]
-
-    # Get the true classes for those images.
-    cls_true = data.test.cls[incorrect]
-
-    # Plot the first 9 images.
-    plot_images(images=images[0:9],
-                cls_true=cls_true[0:9],
-                cls_pred=cls_pred[0:9])
-
-
-def plot_confusion_matrix(cls_pred):
-    # This is called from print_test_accuracy() below.
-
-    # cls_pred is an array of the predicted class-number for
-    # all images in the test-set.
-
-    # Get the true classifications for the test-set.
-    cls_true = data.test.cls
-
-    # Get the confusion matrix using sklearn.
-    cm = confusion_matrix(y_true=cls_true,
-                          y_pred=cls_pred)
-
-    # Print the confusion matrix as text.
-    print(cm)
-
-    # Plot the confusion matrix as an image.
-    plt.matshow(cm)
-
-    # Make various adjustments to the plot.
-    plt.colorbar()
-    tick_marks = np.arange(num_classes)
-    plt.xticks(tick_marks, range(num_classes))
-    plt.yticks(tick_marks, range(num_classes))
-    plt.xlabel('Predicted')
-    plt.ylabel('True')
-
-    # Ensure the plot is shown correctly with multiple plots
-    # in a single Notebook cell.
-    plt.show()
-
-
-# Split the test-set into smaller batches of this size.
-test_batch_size = 256
-
-
-def print_test_accuracy(show_example_errors=False,
-                        show_confusion_matrix=False):
-
-    # Number of images in the test-set.
-    num_test = len(data.test.images)
-
-    # Allocate an array for the predicted classes which
-    # will be calculated in batches and filled into this array.
-    cls_pred = np.zeros(shape=num_test, dtype=np.int)
-
-    # Now calculate the predicted classes for the batches.
-    # We will just iterate through all the batches.
-    # There might be a more clever and Pythonic way of doing this.
-
-    # The starting index for the next batch is denoted i.
-    i = 0
-
-    while i < num_test:
-        # The ending index for the next batch is denoted j.
-        j = min(i + test_batch_size, num_test)
-
-        # Get the images from the test-set between index i and j.
-        images = data.test.images[i:j, :]
-
-        # Get the associated labels.
-        labels = data.test.labels[i:j, :]
-
-        # Create a feed-dict with these images and labels.
-        feed_dict = {x: images,
-                     y_true: labels}
-
-        # Calculate the predicted class using TensorFlow.
-        cls_pred[i:j] = session.run(y_pred_cls, feed_dict=feed_dict)
-
-        # Set the start-index for the next batch to the
-        # end-index of the current batch.
-        i = j
-
-    # Convenience variable for the true class-numbers of the test-set.
-    cls_true = data.test.cls
-
-    # Create a boolean array whether each image is correctly classified.
-    correct = (cls_true == cls_pred)
-
-    # Calculate the number of correctly classified images.
-    # When summing a boolean array, False means 0 and True means 1.
-    correct_sum = correct.sum()
-
-    # Classification accuracy is the number of correctly classified
-    # images divided by the total number of images in the test-set.
-    acc = float(correct_sum) / num_test
-
-    # Print the accuracy.
-    msg = "Accuracy on Test-Set: {0:.1%} ({1} / {2})"
-    print(msg.format(acc, correct_sum, num_test))
-
-    # Plot some examples of mis-classifications, if desired.
-    if show_example_errors:
-        print("Example errors:")
-        plot_example_errors(cls_pred=cls_pred, correct=correct)
-
-    # Plot the confusion matrix, if desired.
-    if show_confusion_matrix:
-        print("Confusion Matrix:")
-        plot_confusion_matrix(cls_pred=cls_pred)
-
-
-def plot_conv_weights(weights, input_channel=0):
-    # Assume weights are TensorFlow ops for 4-dim variables
-    # e.g. weights_conv1 or weights_conv2.
-
-    # Retrieve the values of the weight-variables from TensorFlow.
-    # A feed-dict is not necessary because nothing is calculated.
-    w = session.run(weights)
-
-    # Get the lowest and highest values for the weights.
-    # This is used to correct the colour intensity across
-    # the images so they can be compared with each other.
-    w_min = np.min(w)
-    w_max = np.max(w)
-
-    # Number of filters used in the conv. layer.
-    num_filters = w.shape[3]
-
-    # Number of grids to plot.
-    # Rounded-up, square-root of the number of filters.
-    num_grids = math.ceil(math.sqrt(num_filters))
-
-    # Create figure with a grid of sub-plots.
-    fig, axes = plt.subplots(num_grids, num_grids)
-
-    # Plot all the filter-weights.
-    for i, ax in enumerate(axes.flat):
-        # Only plot the valid filter-weights.
-        if i < num_filters:
-            # Get the weights for the i'th filter of the input channel.
-            # See new_conv_layer() for details on the format
-            # of this 4-dim tensor.
-            img = w[:, :, input_channel, i]
-
-            # Plot image.
-            ax.imshow(img, vmin=w_min, vmax=w_max,
-                      interpolation='nearest', cmap='seismic')
-
-        # Remove ticks from the plot.
-        ax.set_xticks([])
-        ax.set_yticks([])
-
-    # Ensure the plot is shown correctly with multiple plots
-    # in a single Notebook cell.
-    plt.show()
-
-
-optimize(num_iterations=1000)
-print_test_accuracy(show_example_errors=True)
-# plot_conv_weights(weights=weights_conv1)
-
-
-def plot_image(image):
-    plt.imshow(image.reshape(28, 28),
-               interpolation='nearest',
-               cmap='binary')
-
-    plt.show()
-
-
-img = Image.open("/Users/claudiopaliotta/Documents/MachineLearning/Tensorflow_CNN/28by28_cld.bmp")
-img1 = np.multiply(np.reshape(img, [1, 784]), 1.0 / 255.0)
-img2 = 1 - np.reshape(img1, [1, 784])
-
-plot_image(img1)
-plot_image(img2)
+optimize(num_iterations=5000)
+print_test_accuracy()
 
 img_cld = [img1, img2]
 img_cld = np.reshape(img_cld, [2, 784])
 # x_batch_pred = np.reshape(img_cld, [1, img_size, img_size, num_channels])
 hot_lbl = session.run(y_pred, feed_dict={x: img_cld})
 hot_lbl_cls = session.run(y_pred_cls, feed_dict={x: img_cld})
-print(hot_lbl)
-print(hot_lbl_cls)
+plot_image_pred(img1, str(hot_lbl_cls[0]))
+plot_image_pred(img2, str(hot_lbl_cls[1]))

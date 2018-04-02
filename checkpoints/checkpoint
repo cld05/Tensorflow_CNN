@@ -1,0 +1,2 @@
+model_checkpoint_path: "/Users/claudiopaliotta/Documents/MachineLearning/Tensorflow_CNN/checkpoints/best_validation"
+all_model_checkpoint_paths: "/Users/claudiopaliotta/Documents/MachineLearning/Tensorflow_CNN/checkpoints/best_validation"
