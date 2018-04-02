@@ -451,7 +451,7 @@ def plot_conv_weights(weights, input_channel=0):
     plt.show()
 
 
-optimize(num_iterations=500)
+optimize(num_iterations=5000)
 print_test_accuracy(show_example_errors=True)
 # plot_conv_weights(weights=weights_conv1)
 

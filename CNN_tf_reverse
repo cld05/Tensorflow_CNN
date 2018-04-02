@@ -19,6 +19,7 @@ num_filters2 = 36  # number of filters in the second layer
 
 # Final fully-connected layer
 fc_size = 64
+fc_size_cld = 32
 
 # Define the size of the stride operation
 stride = 1
@@ -322,8 +323,15 @@ print(fc1)
 
 # Create the second fully connected layer
 # The output of this one gives the 10 classes yet to be "normalized" (softmax)
-fc2 = new_fc_layer(input=fc1,
-                   num_inputs=fc_size,
+fc_cld = new_fc_layer(input=fc1,
+                      num_inputs=fc_size,
+                      num_outputs=fc_size_cld,
+                      use_relu=True)
+
+# Create the second fully connected layer
+# The output of this one gives the 10 classes yet to be "normalized" (softmax)
+fc2 = new_fc_layer(input=fc_cld,
+                   num_inputs=fc_size_cld,
                    num_outputs=num_cls,
                    use_relu=False)
 print(fc2)
